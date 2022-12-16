@@ -150,6 +150,29 @@ s.waitForBoot {
 		Out.ar(out, Pan2.ar(snd, pan));
 	}).add;
 
+	/* -------------------  Markov Method  ------------------- */
+	~allPs = 7;
+	~fJq = List[1,2,4,2,1,2,2,2,4,6,4,4,5,4,4,2,1,1,3,1,1,5,6,3,2,1,4,2,1,1,2,1];
+	~collections = Array.fill(~allPs, { [] });
+	// collect all the pitches that occur after each value
+	(
+		~allPs.do {|i| if (~fJq.includes(i) ) {~collections.put(i, ~fJq.wrapAt(~fJq.indicesOfEqual(i) + 1)); }}
+	);
+	~markov_dic = Dictionary.new(n:7);
+
+    (
+      7.do {|i| ~markov_dic.add(i.asSymbol -> {
+	    var num, numSet, numProb;
+	    num = ~collections.at(i).sort;
+	    numSet = num.asSet.asArray.sort;
+	    numProb = List[];
+	    ~allPs.do {|i| if (num.includes(i)) { numProb.add(num.indicesOfEqual(i).size ) } };
+	    numProb = numProb.asArray.normalizeSum;
+	    [num,numSet,numProb];
+      }.()
+      );}
+    );
+
 	/* ---------------  Transformation Methods  --------------- */
 
 	//find the next progression by randomly choosing the next valid one according to the transition table
@@ -373,6 +396,21 @@ s.waitForBoot {
 						});
 						~mod = false;
 					};
+					~prog = ~nextProgression.value(~prog);
+					~progToChord.value(~key, ~prog).midicps;
+				}
+			}
+		});
+
+		~markov_func = Pfunc({
+			/* Function controling the note played */
+			var keys;
+			if (~terminated) {
+				nil;
+			} {
+				if (not(~auto)) {
+					Rest(~dur).midicps;
+				} {
 					~prog = ~nextProgression.value(~prog);
 					~progToChord.value(~key, ~prog).midicps;
 				}
