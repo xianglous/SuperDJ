@@ -217,7 +217,6 @@ s.waitForBoot {
 				cans = cans.add(k);
 			}
 		};
-		cans.postln;
 		if (cans.size == 0, key, cans[cans.size.rand]);
 	};
 
@@ -399,11 +398,8 @@ s.waitForBoot {
 					//if switching to the next biome is set to true, set the new key
 					if (~mod) {
 						k = ~nextModule.value(~key, ~prog);
-						k.postln;
-						~key.postln;
 						if (k == ~key, {},{
 							~key = k;
-							"hello".postln;
 						});
 						~mod = false;
 					};
