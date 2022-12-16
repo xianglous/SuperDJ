@@ -181,12 +181,18 @@ s.waitForBoot {
 		| start = 1 |
 		~transition[start][~transition[start].size.rand];
 	};
-	//map the (key,prog) to chord
+	//map the (key,prog) to chord for auto mode
 	~progToChord = {
 		|key, prog|
+		~scale.at(~triad) + key + ~scale.at(prog - 1) + 60;
+	};
 
+	//map the (key,prog) to chord for manual mode
+	~progToChord_key = {
+		|key, prog|
 		key + ~scale.wrapAt(prog - 1) + (((prog - 1) / 7).asInteger * (1 + ~scale.at(6))) + 60;
 	};
+
 	//map the (key, chord) to prog
 	~chordToProg = {
 		|key, chord|
@@ -211,6 +217,7 @@ s.waitForBoot {
 				cans = cans.add(k);
 			}
 		};
+		cans.postln;
 		if (cans.size == 0, key, cans[cans.size.rand]);
 	};
 
@@ -392,6 +399,8 @@ s.waitForBoot {
 					//if switching to the next biome is set to true, set the new key
 					if (~mod) {
 						k = ~nextModule.value(~key, ~prog);
+						k.postln;
+						~key.postln;
 						if (k == ~key, {},{
 							~key = k;
 							"hello".postln;
@@ -470,7 +479,7 @@ s.waitForBoot {
 					~textBox.string = "Number key pressed" + (~note);
 					~notePlay = Pbind(
 						\instrument, ~instrument,
-						\freq, ~progToChord.value(~key, ~note).midicps,
+						\freq, ~progToChord_key.value(~key, ~note).midicps,
 						\amp, ~amp,
 						\sustain, 1,
 						\dur, ~dur,
