@@ -160,7 +160,8 @@ s.waitForBoot {
 	//map the (key,prog) to chord
 	~progToChord = {
 		|key, prog|
-		~scale.at(~triad) + key + ~scale.at(prog - 1) + 60;
+
+		key + ~scale.wrapAt(prog - 1) + (((prog - 1) / 7).asInteger * (1 + ~scale.at(6))) + 60;
 	};
 	//map the (key, chord) to prog
 	~chordToProg = {
@@ -169,8 +170,7 @@ s.waitForBoot {
 		var deg = (chord - ~scale.at(~triad) - key - 60);
 		//valid check by checking the three elements are the same
 		deg.do{
-			|d|
-			if ((d != deg[0]).or(d < 1)) {allsame = false;}
+			|d| if ((d != deg[0]).or(d < 1)) {allsame = false;}
 		};
 		if (allsame, {deg[0];}, {nil;});
 	};
@@ -206,7 +206,7 @@ s.waitForBoot {
 
 
 	( // User Interfacce
-		w = Window.new("I catch keystrokes", Rect(100, 200, 800, 600));
+		w = Window.new("SuperDJ", Rect(100, 200, 800, 600));
 		Font.default = Font("Monaco", 14);
 		// text displaying the user action and playing instrument
 		//an array of instruments to choose from
@@ -225,33 +225,6 @@ s.waitForBoot {
 		~amp = 0.5;
 		~dur = 1.0;
 
-		// slider that controls the amplitude
-		StaticText(w, Rect(50, 40, 100, 30)).string_("Amplitude").align_(\right);
-		~ampSlider = Slider(w, Rect(160, 40, 500, 30))
-		.value_(0.5)
-		.action_({|v| ~amp = v.value; })
-		.keyDownAction_(false);
-
-		// slider that controls the playing speed
-		StaticText(w, Rect(50, 80, 100, 30)).string_("Speed").align_(\right);
-		c = ControlSpec(0.5, 2, \exp);
-		~durSlider = Slider(w, Rect(160, 80, 500, 30))
-		.value_(0.5)
-		.action_({|v| ~dur = 1.0 / c.map(v.value); c.map(v.value).postln;})
-		.keyDownAction_(false);
-
-		// auto switch
-		StaticText(w, Rect(50, 120, 100, 30)).string_("Auto").align_(\right);
-		~autoSlider = Slider(w, Rect(160, 120, 50, 30))
-		.value_(0)
-		.action_({|v|
-			~autoSlider.value = v.value.round;
-			~auto = ~autoSlider.value.booleanValue;
-		})
-		.keyDownAction_(false);
-
-		w.front;
-
 		// Initial value
 		~key = ~start_mod;
 		~prog = ~start_prog;
@@ -266,6 +239,113 @@ s.waitForBoot {
 		~terminated = false; //a boolean to indicate whether or not to pause
 
 		~auto = false;
+
+		~mealy = true;
+
+		~mealyPlay = nil;
+
+		~markovPlay = nil;
+
+		// slider that controls the amplitude
+		StaticText(w, Rect(50, 40, 100, 30))
+		.string_("Amplitude")
+		.align_(\right)
+		.font_(Font.default.boldVariant);
+		~ampSlider = Slider(w, Rect(160, 40, 500, 30))
+		.value_(0.5)
+		.action_({|v| ~amp = v.value; })
+		.keyDownAction_(false);
+
+		// slider that controls the playing speed
+		StaticText(w, Rect(50, 80, 100, 30))
+		.string_("Speed")
+		.align_(\right)
+		.font_(Font.default.boldVariant);
+		c = ControlSpec(0.5, 2, \exp);
+		~durSlider = Slider(w, Rect(160, 80, 500, 30))
+		.value_(0.5)
+		.action_({|v| ~dur = 1.0 / c.map(v.value);})
+		.keyDownAction_(false);
+
+
+		// mealy vs mc
+		~mm_text = StaticText(w, Rect(350, 120, 100, 30))
+		.string_("Mealy")
+		.align_(\right)
+		.font_(Font.default.boldVariant)
+		.visible_(false);
+
+		~mc_text = StaticText(w, Rect(520, 120, 100, 30))
+		.string_("Markov")
+		.align_(\left)
+		.visible_(false);
+
+		~mSlider = Slider(w, Rect(460, 120, 50, 30))
+		.value_(0)
+		.background_(Color.green)
+		.action_({|v|
+			var color_map = (1: Color.green, 0: Color.red);
+			~mSlider.value = v.value.round;
+			~mealy = (1 - ~mSlider.value).booleanValue;
+			~mSlider.background = color_map[~mealy.asInteger];
+			if (~mealy) {
+				~mc_text.font = Font.default;
+				~mm_text.font = Font.default.boldVariant;
+				~mealyPlay.resume;
+				~markovPlay.stop;
+			} {
+				~mm_text.font = Font.default;
+				~mc_text.font = Font.default.boldVariant;
+				~mealyPlay.stop;
+				~markovPlay.resume;
+			}
+		})
+		.keyDownAction_(false)
+		.visible_(false);
+
+
+		// auto switch
+		~man_text = StaticText(w, Rect(50, 120, 100, 30))
+		.string_("Manual")
+		.align_(\right)
+		.font_(Font.default.boldVariant);
+
+		~auto_text = StaticText(w, Rect(220, 120, 100, 30))
+		.string_("Auto")
+		.align_(\left);
+
+		~autoSlider = Slider(w, Rect(160, 120, 50, 30))
+		.value_(0)
+		.background_(Color.red)
+		.action_({|v|
+			var color_map = (1: Color.green, 0: Color.red);
+			~autoSlider.value = v.value.round;
+			~auto = ~autoSlider.value.booleanValue;
+			~autoSlider.background = color_map[~auto.asInteger];
+			if (~auto) {
+				~man_text.font = Font.default;
+				~auto_text.font = Font.default.boldVariant;
+				~mm_text.visible = true;
+				~mc_text.visible = true;
+				~mSlider.visible = true;
+				if (~mealy) {
+					~mealyPlay.resume;
+				}{
+					~markovPlay.resume;
+				}
+			} {
+				~auto_text.font = Font.default;
+				~man_text.font = Font.default.boldVariant;
+				~mm_text.visible = false;
+				~mc_text.visible = false;
+				~mSlider.visible = false;
+				~mealyPlay.stop;
+				~markovPlay.stop;
+			}
+		})
+		.keyDownAction_(false);
+
+		w.front;
 
 		~instrument = Pfunc({
 			/* Function controlling the instrument playerd */
@@ -282,23 +362,18 @@ s.waitForBoot {
 			if (~terminated) {
 				nil;
 			} {
-				if (~paused || (not(~auto).and(~numberPressed == 0))) {
+				if (not(~auto)) {
 					Rest(~dur).midicps;
 				} {
 					//if switching to the next biome is set to true, set the new key
-					if (~mod == true) {
+					if (~mod) {
 						k = ~nextModule.value(~key, ~prog);
 						if (k == ~key, {},{
 							~key = k;
 						});
 						~mod = false;
 					};
-					if(not(~auto).and(~numberPressed != 0),{
-						~prog = ~numberPressed - 49 + 1;
-						~numberPressed = 0;
-					},{
-						~prog = ~nextProgression.value(~prog);
-					});
+					~prog = ~nextProgression.value(~prog);
 					~progToChord.value(~key, ~prog).midicps;
 				}
 			}
@@ -310,18 +385,56 @@ s.waitForBoot {
 		// Function controlling the speed
 		~dur_func = Pfunc({if(~terminated == true){nil}{~dur}});
 
+		// ~playing = false;
+		~pressed = false;
+		~pressedTime = Date.localtime.rawSeconds;
+		~releasedTime = Date.localtime.rawSeconds;
+
+		~note = 0;
+
+		~notePlay = nil;
+
+		~mealyPlay = Pbind(
+			\instrument, ~instrument,
+			\freq, ~play_func,
+			\amp, ~amp_func,
+			\dur, ~dur_func,
+		).play.stop;
+
+		~markovPlay = Pbind(\freq, Rest()).play.stop;
+
+		w.view.keyUpAction = { |view, char, modifiers, unicode, keycode|
+			var time = Date.localtime.rawSeconds;
+			~releasedTime = Date.localtime.rawSeconds;
+			~pressed = false;
+			~notePlay.stop;
+		};
+
 		w.view.keyDownAction = { |view, char, modifiers, unicode, keycode|
 			/* Function handling input keys */
 			var cand;
 			//if presses number key 1-6, play the corresponding sound
 			if(not(~auto) && (unicode >= 49) && (unicode <= 57),{
 				//map the unicode to 1-6
-				~numberPressed = unicode;
-				~textBox.string = "Number key pressed" + (~numberPressed - 49 + 1);
-				Routine({
-					0.5.wait;
-					~textBox.string = (~insts[~inst_index] ++ " Playing...");
-				}).play(AppClock);
+				// ~numberPressed = unicode;
+				~pressedTime = Date.localtime.rawSeconds;
+				if (~note != (unicode -  48) || ((~pressedTime - ~releasedTime) > 0.1)) {
+					~pressed = true;
+					~note = unicode - 49 + 1;
+					~textBox.string = "Number key pressed" + (~note);
+					~notePlay = Pbind(
+						\instrument, ~instrument,
+						\freq, ~progToChord.value(~key, ~note).midicps,
+						\amp, ~amp,
+						\sustain, 1,
+						\dur, ~dur,
+					).play;
+					Routine({
+						0.1.wait; // avoid consecutive playing
+						~dur.wait;
+						~textBox.string = (~insts[~inst_index] ++ " Playing...");
+					}).play(AppClock);
+				}
 			});
 
 			//if press qwerty, switch to corresponding instrument
@@ -331,7 +444,8 @@ s.waitForBoot {
 			});
 
 			//if presses arrow key
-			if (unicode == 0 , {
+
+			if (~auto.and(~mealy).and([37, 38, 39, 40].includes(keycode)) , {
 				~mod = true;
 				"biome Switched".postln;
 				~textBox.string = "Biome Switched";
@@ -347,25 +461,21 @@ s.waitForBoot {
 				if (~paused, {
 					"paused".postln;
 					~textBox.string = "Paused";
+					~mealyPlay.stop;
 				}, {
 					"resumed".postln;
 					~textBox.string = (~insts[~inst_index] ++ " Playing...");
+					~mealyPlay.resume;
 				});
 			});
 
 			//if presses esc, exit
 			if (unicode == 27, {
-				~paused = true;
+				~mealyPlay.stop;
+				~terminated = true;
 				w.close; // exit
 			});
 		};
-
-		Pbind(
-			\instrument, ~instrument,
-			\freq, ~play_func,
-			\amp, ~amp_func,
-			\dur, ~dur_func,
-		).play;
 	);
 };
 )
