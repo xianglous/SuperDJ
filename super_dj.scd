@@ -412,14 +412,14 @@ s.waitForBoot {
 
 		~markov_func = Pfunc({
 			/* Function controling the note played */
-			var keys;
+	        var keys;
 			if (~terminated) {
 				nil;
 			} {
 				if (not(~auto)) {
 					Rest(~dur).midicps;
 				} {
-					~prog = ~markov_dic[~prog.asSymbol][1].wchoose(d[~prog.asSymbol][2]);
+					~prog = ~markov_dic[~prog.asSymbol][1].wchoose(~markov_dic[~prog.asSymbol][2]);
 					~progToChord.value(~key, ~prog).midicps;
 				}
 			}
