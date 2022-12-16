@@ -152,7 +152,7 @@ s.waitForBoot {
 
 	/* -------------------  Markov Method  ------------------- */
 	~allPs = 7;
-	~fJq = List[1,2,4,2,1,2,2,2,4,6,4,4,5,4,4,2,1,1,3,1,1,5,6,3,2,1,4,2,1,1,2,1];
+	~fJq = List[1,2,4,2,4,6,4,6,4,4,5,4,4,2,1,1,3,1,5,6,3,2,1,4,2,1,3,2,1];
 	~collections = Array.fill(~allPs, { [] });
 	// collect all the pitches that occur after each value
 	(
@@ -172,6 +172,7 @@ s.waitForBoot {
       }.()
       );}
     );
+
 
 	/* ---------------  Transformation Methods  --------------- */
 
@@ -393,11 +394,13 @@ s.waitForBoot {
 						k = ~nextModule.value(~key, ~prog);
 						if (k == ~key, {},{
 							~key = k;
+							"hello".postln;
 						});
 						~mod = false;
 					};
 					~prog = ~nextProgression.value(~prog);
 					~progToChord.value(~key, ~prog).midicps;
+
 				}
 			}
 		});
@@ -411,7 +414,7 @@ s.waitForBoot {
 				if (not(~auto)) {
 					Rest(~dur).midicps;
 				} {
-					~prog = ~nextProgression.value(~prog);
+					~prog = ~markov_dic[~prog.asSymbol][1].wchoose(d[~prog.asSymbol][2]);
 					~progToChord.value(~key, ~prog).midicps;
 				}
 			}
@@ -439,7 +442,12 @@ s.waitForBoot {
 			\dur, ~dur_func,
 		).play.stop;
 
-		~markovPlay = Pbind(\freq, Rest()).play.stop;
+		~markovPlay = Pbind(
+			\instrument, ~instrument,
+			\freq, ~markov_func,
+			\amp, ~amp_func,
+			\dur, ~dur_func,
+		).play.stop;
 
 		w.view.keyUpAction = { |view, char, modifiers, unicode, keycode|
 			var time = Date.localtime.rawSeconds;
@@ -483,7 +491,7 @@ s.waitForBoot {
 
 			//if presses arrow key
 
-			if (~auto.and(~mealy).and([37, 38, 39, 40].includes(keycode)) , {
+			if (~auto.and(~mealy).and([37, 38, 39, 40, 123, 124, 125, 126].includes(keycode)) , {
 				~mod = true;
 				"biome Switched".postln;
 				~textBox.string = "Biome Switched";
