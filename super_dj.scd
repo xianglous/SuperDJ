@@ -151,27 +151,64 @@ s.waitForBoot {
 	}).add;
 
 	/* -------------------  Markov Method  ------------------- */
-	~allPs = 7;
-	~fJq = List[1,2,4,2,4,6,4,6,4,4,5,4,4,2,1,1,3,1,5,6,3,2,1,4,2,1,3,2,1];
-	~collections = Array.fill(~allPs, { [] });
-	// collect all the pitches that occur after each value
-	(
-		~allPs.do {|i| if (~fJq.includes(i) ) {~collections.put(i, ~fJq.wrapAt(~fJq.indicesOfEqual(i) + 1)); }}
-	);
-	~markov_dic = Dictionary.new(n:7);
 
-    (
-      7.do {|i| ~markov_dic.add(i.asSymbol -> {
-	    var num, numSet, numProb;
-	    num = ~collections.at(i).sort;
-	    numSet = num.asSet.asArray.sort;
-	    numProb = List[];
-	    ~allPs.do {|i| if (num.includes(i)) { numProb.add(num.indicesOfEqual(i).size ) } };
-	    numProb = numProb.asArray.normalizeSum;
-	    [num,numSet,numProb];
-      }.()
-      );}
-    );
+	// choose a pattern to train on
+	~maxPatternSeq = {
+		|m, lim=100000|
+		var sz = 0;
+		g = m.generatePatternSeqs;
+		i = -1;
+		g.do{
+			|a, j|
+			if ((a.size > sz).and(a.size < lim)) {
+				i = j;
+				sz = a.size;
+			};
+		};
+		g[i];
+	};
+
+	~rest = -1; // rest indicator
+
+	~markov_last = nil; // last note the MC generated
+
+	// process input midi sequence and train Markov Model, return a dictionary
+	~get_markov_dict = {
+		|seq|
+		var midi, size, numid_arr, collection, normB;
+		//get the midi arr
+		midi = all{:seq[i][0], i<-seq.size};
+
+		//set "rest" to smallest - 1 for better indexing
+		~rest = midi.minItem - 1;
+		size = midi.maxItem - midi.minItem + 1;
+
+		// replace rest
+		numid_arr = all{:if(s==\rest,~rest,s), s<-midi};
+
+		d = Dictionary.new(n:size);
+		collection = Array.fill(size, { [] });
+		size.do {|i|
+			if (numid_arr.includes(~rest + i)) {
+				collection.put(i,numid_arr.wrapAt(numid_arr.indicesOfEqual(~rest + i) + 1));
+		}};
+
+		size.do {|i| d.add(i.asSymbol -> {
+			var num, numSet, numProb;
+			num = collection.at(i).sort;
+			numSet = num.asSet.asArray.sort;
+			numProb = List[];
+			size.do {|i| if (num.includes(i + ~rest)) { numProb.add(num.indicesOfEqual(i + ~rest).size ) } };
+			numProb = numProb.asArray.normalizeSum;
+			[num,numSet,numProb];
+		}.());};
+		~markov_last = numid_arr[0];
+		d;
+	};
+
+	~midi_seq = ~maxPatternSeq.value(SimpleMIDIFile.read("midi/sample.mid".resolveRelative), 500); // MIDI sequence
+
+	~markov_dic = ~get_markov_dict.value(~midi_seq); // MC model
 
 
 	/* ---------------  Transformation Methods  --------------- */
@@ -250,7 +287,8 @@ s.waitForBoot {
 		~inst_index = 113;
 
 		// a label showing the playing instrument
-		~textBox = StaticText(w, Rect(10, 10, 200, 20))
+		~textBox = StaticText(w, Rect(0, 210, 800, 20))
+		.align_(\center)
 		.string_((~insts[~inst_index] ++ " Playing..."));
 		~amp = 0.5;
 		~dur = 1.0;
@@ -268,115 +306,174 @@ s.waitForBoot {
 
 		~terminated = false; //a boolean to indicate whether or not to pause
 
-		~auto = false;
+		~auto = false; // auto mode
 
-		~mealy = true;
+		~mealy = true; // mealy or mc
 
-		~mealyPlay = nil;
+		~mealyPlay = nil; // mealy play event
 
-		~markovPlay = nil;
+		~markovPlay = nil; // Markov play event
 
 		// slider that controls the amplitude
-		StaticText(w, Rect(50, 40, 100, 30))
+		StaticText(w, Rect(50, 240, 100, 30))
 		.string_("Amplitude")
 		.align_(\right)
 		.font_(Font.default.boldVariant);
-		~ampSlider = Slider(w, Rect(160, 40, 500, 30))
+		~ampSlider = Slider(w, Rect(160, 240, 500, 30))
 		.value_(0.5)
 		.action_({|v| ~amp = v.value; })
-		.keyDownAction_(false);
+		.keyDownAction_(false)
+		.background_(Color.new255(255, 255, 255, 200))
+		.knobColor_(Color.blue);
 
 		// slider that controls the playing speed
-		StaticText(w, Rect(50, 80, 100, 30))
+		StaticText(w, Rect(50, 280, 100, 30))
 		.string_("Speed")
 		.align_(\right)
 		.font_(Font.default.boldVariant);
 		c = ControlSpec(0.5, 2, \exp);
-		~durSlider = Slider(w, Rect(160, 80, 500, 30))
+		~durSlider = Slider(w, Rect(160, 280, 500, 30))
 		.value_(0.5)
 		.action_({|v| ~dur = 1.0 / c.map(v.value);})
-		.keyDownAction_(false);
-
+		.keyDownAction_(false)
+		.background_(Color.new255(255, 255, 255, 200))
+		.knobColor_(Color.blue);
 
 		// mealy vs mc
-		~mm_text = StaticText(w, Rect(350, 120, 100, 30))
+
+		// read input midi file
+		~mc_button = Button(w, Rect(560, 320, 100, 30))
+		.string_("MIDI File")
+		.font_(Font.default)
+		.visible_(false)
+		.action_({|v|
+			FileDialog({ |paths|
+				var mi, ext = paths[0].asString.split($.).wrapAt(-1).toLower;
+				if ((ext == "mid") || (ext == "midi")) {
+					// correct file format, update markov model
+					"correct format".postln;
+					mi = SimpleMIDIFile.read(paths[0]);
+					~midi_seq = ~maxPatternSeq.value(mi, 500);
+					~markov_dic = ~get_markov_dict.value(~midi_seq);
+				} {
+					// wrong format, do nothing
+					"wrong format".postln;
+				}
+			}, {
+				"No File Selected".postln;
+			});
+		});
+
+		// mealy label
+		~mm_text = StaticText(w, Rect(320, 320, 100, 30))
 		.string_("Mealy")
 		.align_(\right)
 		.font_(Font.default.boldVariant)
 		.visible_(false);
 
-		~mc_text = StaticText(w, Rect(520, 120, 100, 30))
+		// markov label
+		~mc_text = StaticText(w, Rect(490, 320, 100, 30))
 		.string_("Markov")
 		.align_(\left)
 		.visible_(false);
 
-		~mSlider = Slider(w, Rect(460, 120, 50, 30))
+		// mealy-markov selector
+		~mSlider = Slider(w, Rect(430, 320, 50, 30))
 		.value_(0)
-		.background_(Color.green)
+		.background_(Color.yellow)
+		.step_(1)
 		.action_({|v|
-			var color_map = (1: Color.green, 0: Color.red);
-			~mSlider.value = v.value.round;
-			~mealy = (1 - ~mSlider.value).booleanValue;
-			~mSlider.background = color_map[~mealy.asInteger];
+			var color_map = (1: Color.yellow, 0: Color.blue);
+			// switch between mealy and markov
+			if (v.value.asInteger == ~mealy.asInteger) {
+				~mealy = (1 - v.value.round.asInteger).booleanValue;
+				if (~mealy) {
+					if (not(~paused)) {
+						~mealyPlay.resume;
+						~markovPlay.stop;
+					}
+				} {
+					if (not(~paused)) {
+						~markovPlay.resume;
+						~mealyPlay.stop;
+					}
+				};
+				~mSlider.enabled = false;
+				Routine({
+					~dur.wait; // avoid consecutive playing
+					~mSlider.enabled = true;
+				}).play(AppClock);
+			};
 			if (~mealy) {
 				~mc_text.font = Font.default;
 				~mm_text.font = Font.default.boldVariant;
-				~mealyPlay.resume;
-				~markovPlay.stop;
+				~mc_button.visible = false;
 			} {
 				~mm_text.font = Font.default;
 				~mc_text.font = Font.default.boldVariant;
-				~mealyPlay.stop;
-				~markovPlay.resume;
-			}
+				~mc_button.visible = true;
+			};
+			~mSlider.background = color_map[~mealy.asInteger];
 		})
 		.keyDownAction_(false)
-		.visible_(false);
-
+		.visible_(false); // initially invisible
 
 		// auto switch
-		~man_text = StaticText(w, Rect(50, 120, 100, 30))
+
+		// manual label
+		~man_text = StaticText(w, Rect(50, 320, 100, 30))
 		.string_("Manual")
 		.align_(\right)
 		.font_(Font.default.boldVariant);
 
-		~auto_text = StaticText(w, Rect(220, 120, 100, 30))
+		// auto label
+		~auto_text = StaticText(w, Rect(220, 320, 100, 30))
 		.string_("Auto")
 		.align_(\left);
 
-		~autoSlider = Slider(w, Rect(160, 120, 50, 30))
+		// auto - manual selector
+		~autoSlider = Slider(w, Rect(160, 320, 50, 30))
 		.value_(0)
 		.background_(Color.red)
+		.step_(1)
 		.action_({|v|
 			var color_map = (1: Color.green, 0: Color.red);
-			~autoSlider.value = v.value.round;
-			~auto = ~autoSlider.value.booleanValue;
-			~autoSlider.background = color_map[~auto.asInteger];
-			if (~auto) {
-				~man_text.font = Font.default;
-				~auto_text.font = Font.default.boldVariant;
-				~mm_text.visible = true;
-				~mc_text.visible = true;
-				~mSlider.visible = true;
-				if (~mealy) {
-					~mealyPlay.resume;
-				}{
-					~markovPlay.resume;
+			// ~autoSlider.value = v.value.round;
+			if (~auto != v.value.asInteger.booleanValue) {
+				~auto = v.value.asInteger.booleanValue;
+				~autoSlider.background = color_map[~auto.asInteger];
+				if (~auto) {
+					~man_text.font = Font.default;
+					~auto_text.font = Font.default.boldVariant;
+					~mm_text.visible = true;
+					~mc_text.visible = true;
+					~mSlider.visible = true;
+					if (~mealy) {
+						if (not(~paused)) {
+							~mealyPlay.resume;
+						}
+					}{
+						if (not(~paused)) {
+							~markovPlay.resume;
+						}
+					}
+				} {
+					~auto_text.font = Font.default;
+					~man_text.font = Font.default.boldVariant;
+					~mm_text.visible = false;
+					~mc_text.visible = false;
+					~mSlider.visible = false;
+					~mealyPlay.stop;
+					~markovPlay.stop;
 				}
-			} {
-				~auto_text.font = Font.default;
-				~man_text.font = Font.default.boldVariant;
-				~mm_text.visible = false;
-				~mc_text.visible = false;
-				~mSlider.visible = false;
-				~mealyPlay.stop;
-				~markovPlay.stop;
 			}
 		})
 		.keyDownAction_(false);
 
+		w.background = Color.new255(255, 255, 255, 240);
 		w.front;
 
+		// instrument Pfunction
 		~instrument = Pfunc({
 			/* Function controlling the instrument playerd */
 			if(~terminated == true){
@@ -386,7 +483,8 @@ s.waitForBoot {
 			}
 		});
 
-		~play_func = Pfunc({
+		// mealy play function
+		~mealy_func = Pfunc({
 			/* Function controling the note played */
 			var keys;
 			if (~terminated) {
@@ -405,22 +503,22 @@ s.waitForBoot {
 					};
 					~prog = ~nextProgression.value(~prog);
 					~progToChord.value(~key, ~prog).midicps;
-
 				}
 			}
 		});
 
+		// markov play function
 		~markov_func = Pfunc({
-			/* Function controling the note played */
-	        var keys;
+			var keys, num;
 			if (~terminated) {
 				nil;
 			} {
 				if (not(~auto)) {
 					Rest(~dur).midicps;
 				} {
-					~prog = ~markov_dic[~prog.asSymbol][1].wchoose(~markov_dic[~prog.asSymbol][2]);
-					~progToChord.value(~key, ~prog).midicps;
+					num = (~markov_last - ~rest).asSymbol;
+					~markov_last = ~markov_dic[num][1].wchoose(~markov_dic[num][2]);
+					~markov_last.midicps;
 				}
 			}
 		});
@@ -433,32 +531,37 @@ s.waitForBoot {
 
 		// ~playing = false;
 		~pressed = false;
-		~pressedTime = Date.localtime.rawSeconds;
-		~releasedTime = Date.localtime.rawSeconds;
+		~pressedTime = all{:Date.localtime.rawSeconds, i<-(0..9)};
+		~releasedTime = all{:Date.localtime.rawSeconds, i<-(0..9)};
 
 		~note = 0;
 
-		~notePlay = nil;
+		~notePlay = nil; // manual play function
 
 		~mealyPlay = Pbind(
 			\instrument, ~instrument,
-			\freq, ~play_func,
+			\freq, ~mealy_func,
 			\amp, ~amp_func,
 			\dur, ~dur_func,
-		).play.stop;
+		).play;
+
+		~mealyPlay.stop;
 
 		~markovPlay = Pbind(
 			\instrument, ~instrument,
 			\freq, ~markov_func,
 			\amp, ~amp_func,
 			\dur, ~dur_func,
-		).play.stop;
+		).play;
+
+		~markovPlay.stop;
 
 		w.view.keyUpAction = { |view, char, modifiers, unicode, keycode|
-			var time = Date.localtime.rawSeconds;
-			~releasedTime = Date.localtime.rawSeconds;
-			~pressed = false;
-			~notePlay.stop;
+			if(not(~auto) && (unicode >= 49) && (unicode <= 57)) {
+				~releasedTime[unicode - 49] = Date.localtime.rawSeconds;
+				~pressed = false;
+				~notePlay.stop;
+			}
 		};
 
 		w.view.keyDownAction = { |view, char, modifiers, unicode, keycode|
@@ -467,15 +570,15 @@ s.waitForBoot {
 			//if presses number key 1-6, play the corresponding sound
 			if(not(~auto) && (unicode >= 49) && (unicode <= 57),{
 				//map the unicode to 1-6
-				// ~numberPressed = unicode;
-				~pressedTime = Date.localtime.rawSeconds;
-				if (~note != (unicode -  48) || ((~pressedTime - ~releasedTime) > 0.1)) {
+
+				~pressedTime[unicode - 49] = Date.localtime.rawSeconds;
+				if (~note != (unicode -  48) || ((~pressedTime[unicode - 49] - ~releasedTime[unicode - 49]) > 0.1)) {
 					~pressed = true;
 					~note = unicode - 49 + 1;
 					~textBox.string = "Number key pressed" + (~note);
 					~notePlay = Pbind(
 						\instrument, ~instrument,
-						\freq, ~progToChord_key.value(~key, ~note).midicps,
+						\freq, Pseq([~progToChord_key.value(~key, ~note).midicps, nil]),
 						\amp, ~amp,
 						\sustain, 1,
 						\dur, ~dur,
@@ -512,21 +615,34 @@ s.waitForBoot {
 				if (~paused, {
 					"paused".postln;
 					~textBox.string = "Paused";
-					~mealyPlay.stop;
+					if (~mealy) {
+						~mealyPlay.stop;
+					}{
+						~markovPlay.stop;
+					}
 				}, {
 					"resumed".postln;
 					~textBox.string = (~insts[~inst_index] ++ " Playing...");
-					~mealyPlay.resume;
+					if (~mealy) {
+						~mealyPlay.resume;
+					}{
+						~markovPlay.resume;
+					}
 				});
 			});
 
 			//if presses esc, exit
 			if (unicode == 27, {
-				~mealyPlay.stop;
-				~terminated = true;
 				w.close; // exit
 			});
 		};
+
+		w.onClose = {
+			~mealyPlay.stop;
+			~markovPlay.stop;
+			~terminated = true;
+			"closed".postln;
+		}
 	);
 };
 )
